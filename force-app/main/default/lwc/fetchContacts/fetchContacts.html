@@ -1,0 +1,12 @@
+<template>
+    <template if:true={contacts.data}>
+        <ul>
+            <template for:each={contacts.data} for:item="contact">
+                <li key={contact.Id}>{contact.Name} {contact.Email}</li>
+            </template>
+        </ul>
+    </template>
+    <template if:true={contacts.error}>
+        <p>Error loading contacts.</p>
+    </template>
+</template>

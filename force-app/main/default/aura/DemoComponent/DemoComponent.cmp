@@ -1,0 +1,6 @@
+<aura:component implements="force:appHostable,flexipage:availableForAllPageTypes,flexipage:availableForRecordHome,force:hasRecordId,force:lightningQuickAction" access="global" >
+    <aura:attribute name= "Message" type= "string"/>
+    <lightning:button label= "Click Me" onclick="{!c.handleOnClick}"> </lightning:button>
+    <h1>
+        Message : {!v.Message}    </h1>
+</aura:component>
