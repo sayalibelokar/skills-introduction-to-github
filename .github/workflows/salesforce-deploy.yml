@@ -1,1 +1,83 @@
+name: Salesforce Release and Deployment
 
+on:
+  push:
+    branches:
+      - release/*
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Select action to trigger"
+        required: true
+        type: choice
+        options:
+          - validate
+          - deploy
+
+jobs:
+  validate-prod:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'validate' || github.event.inputs.action == 'both'
+
+    steps:
+      - name: Checkout Release Branch
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Salesforce CLI
+        uses: sfdx-actions/setup-sfdx@v1
+        with:
+          sfdx-version: latest
+
+      - name: Install sfdx-git-delta plugin
+        run: |
+          npm install -g sfdx-cli
+          npx sfdx plugins:install sfdx-git-delta
+
+      - name: Authenticate to Salesforce Org
+        run: echo ${{ secrets.SFDX_AUTH_URL }} > ./SFDX_AUTH_URL.txt && sfdx auth:sfdxurl:store -f ./SFDX_AUTH_URL.txt -a QA
+
+      - name: Generate Delta Package
+        run: |
+          mkdir delta-package
+          npx sfdx sgd:source:delta --to "refs/heads/master" --from "refs/heads/release/${GITHUB_REF##*/}" --output delta-package/ --generate-delta
+
+      - name: Validate Deployment in Salesforce Org
+        run: |
+          mkdir -p validation-reports
+          sfdx force:source:deploy -x delta-package/package.xml -u QA --checkonly --testlevel RunLocalTests --resultformat json --wait 10 > validation-reports/validation-report.json
+
+      - name: Display Validation Results
+        run: cat validation-reports/validation-report.json
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: validate-prod
+    if: github.event.inputs.action == 'deploy' || github.event.inputs.action == 'both'
+
+    steps:
+      - name: Checkout Release Branch
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Salesforce CLI
+        uses: sfdx-actions/setup-sfdx@v1
+        with:
+          sfdx-version: latest
+
+      - name: Authenticate to Salesforce Org
+        run: echo ${{ secrets.SFDX_AUTH_URL }} > ./SFDX_AUTH_URL.txt && sfdx auth:sfdxurl:store -f ./SFDX_AUTH_URL.txt -a QA
+
+      - name: Deploy Delta Package to Salesforce
+        run: |
+          sfdx force:source:deploy -x delta-package/package.xml -u QA --testlevel RunLocalTests --wait 10
+
+      - name: Run Apex Tests and Check Code Coverage
+        run: |
+          coverage=$(sfdx force:apex:test:run --resultformat json --codecoverage --synchronous | jq .result.coverage)
+          if [[ "$coverage" -lt 75 ]]; then
+            echo "Code coverage is below 75%. Failing deployment."
+            exit 1
+          fi
